@@ -26,7 +26,7 @@ pub const TABLE: &[(&str, u8)] = &[
 ];
 
 /// Binaries and build tooling on top of every layer: exempt from the rules.
-pub const EXEMPT: &[&str] = &["texturecraft", "texturecraft-cli", "texturecraft-web", "xtask"];
+pub const EXEMPT: &[&str] = &["texturecraft", "texturecraft-cli", "texturecraft-web", "texturecraft-ios", "xtask"];
 
 /// External UI toolkit / windowing crates (a trailing `*` is a prefix), allowed from L5 up.
 const UI_CRATES: &[&str] = &["egui", "egui_*", "egui-*", "eframe", "winit", "rfd"];

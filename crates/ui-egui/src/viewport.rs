@@ -254,6 +254,11 @@ fn view_3d(app: &mut TextureCraftApp, ui: &mut Ui, rect: Rect, sync: &mut Pendin
     app.session.viewport = Vec2::new(size.x.max(16.0), size.y.max(16.0));
     let (alt, shift) = ui.input(|i| (i.modifiers.alt, i.modifiers.shift));
     let local = |p: egui::Pos2| Vec2::new(p.x - rect.left(), p.y - rect.top());
+    // iPadOS: the Apple Pencil is known by its touch id, so a palm resting on the glass is neither
+    // a gesture nor the pointer, and the stroke follows the pen even when a finger touched first.
+    let pen = crate::stylus::pen_motion(ui.ctx());
+    let pen_down = crate::stylus::pen_is_down();
+    let pen_input = pen.is_some() || pen_down;
     let adjusting = brush_drag(app, ui, &resp);
     let navigating = !adjusting && (alt || ui.input(|i| i.pointer.middle_down() || i.pointer.secondary_down()));
 
@@ -292,8 +297,9 @@ fn view_3d(app: &mut TextureCraftApp, ui: &mut Ui, rect: Rect, sync: &mut Pendin
     }
 
     // Touch screens: two fingers orbit and pinch zooms, three fingers pan. A second finger
-    // cancels the stroke the first one started, so navigating leaves no paint behind.
-    let touch = ui.input(|i| i.multi_touch()).filter(|_| resp.contains_pointer() || resp.dragged());
+    // cancels the stroke the first one started, so navigating leaves no paint behind. While the pen
+    // is down its contact is the one painting, and every other touch is a resting palm.
+    let touch = ui.input(|i| i.multi_touch()).filter(|_| !pen_down && (resp.contains_pointer() || resp.dragged()));
     if let Some(t) = touch {
         if app.session.stroke_active() {
             app.session.cancel_stroke();
@@ -383,7 +389,35 @@ fn view_3d(app: &mut TextureCraftApp, ui: &mut Ui, rect: Rect, sync: &mut Pendin
             })
         });
         let pressure = pressure.unwrap_or(1.0);
-        if resp.drag_started_by(PointerButton::Primary) || resp.clicked_by(PointerButton::Primary) {
+        if pen_input {
+            // The pen's own touch frames drive the brush: the pointer egui emulates follows the
+            // first contact down, which is the palm rather than the pen whenever the hand lands
+            // first. A frame with the pen held still carries no new point, and so paints nothing.
+            if let Some(pen) = pen {
+                let p = local(pen.pos);
+                if pen.began {
+                    // Shift+click paints a straight line from where the last stroke ended.
+                    let line_from = if shift { app.last_paint_point } else { None };
+                    match app.session.begin_stroke(line_from.unwrap_or(p), vp, pen.force) {
+                        Ok(_) => {
+                            if line_from.is_some() {
+                                app.session.continue_stroke(p, pen.force);
+                            }
+                            app.last_paint_point = Some(p);
+                        }
+                        Err(e) => app.toast(e.to_string(), true),
+                    }
+                } else if app.session.stroke_active() {
+                    app.session.continue_stroke(p, pen.force);
+                    app.last_paint_point = Some(p);
+                }
+                if pen.ended
+                    && let Err(e) = app.session.end_stroke()
+                {
+                    app.toast(e.to_string(), true);
+                }
+            }
+        } else if resp.drag_started_by(PointerButton::Primary) || resp.clicked_by(PointerButton::Primary) {
             // Shift+click paints a straight line from where the last stroke ended.
             let line_from = if shift { app.last_paint_point } else { None };
             if let Some(p) = resp.interact_pointer_pos() {
@@ -409,7 +443,8 @@ fn view_3d(app: &mut TextureCraftApp, ui: &mut Ui, rect: Rect, sync: &mut Pendin
             app.session.continue_stroke(local(p), pressure);
             app.last_paint_point = Some(local(p));
         }
-        if resp.drag_stopped_by(PointerButton::Primary)
+        if !pen_input
+            && resp.drag_stopped_by(PointerButton::Primary)
             && let Err(e) = app.session.end_stroke()
         {
             app.toast(e.to_string(), true);
@@ -913,6 +948,9 @@ fn view_2d(app: &mut TextureCraftApp, ui: &mut Ui, rect: Rect, sync: &mut Pendin
     let resp = ui.interact(rect, ui.scope_id().with("view2d"), Sense::click_and_drag());
     let size = rect.size();
     let alt = ui.input(|i| i.modifiers.alt);
+    let pen = crate::stylus::pen_motion(ui.ctx());
+    let pen_down = crate::stylus::pen_is_down();
+    let pen_input = pen.is_some() || pen_down;
     let adjusting = brush_drag(app, ui, &resp);
     let delta = ui.input(|i| i.pointer.delta());
     if resp.dragged_by(PointerButton::Middle) || (alt && resp.dragged_by(PointerButton::Primary)) {
@@ -930,6 +968,27 @@ fn view_2d(app: &mut TextureCraftApp, ui: &mut Ui, rect: Rect, sync: &mut Pendin
                 for k in 0..2 {
                     app.ui.uv_pan[k] = c[k] - (c[k] - app.ui.uv_pan[k]) * new / old;
                 }
+            }
+            app.ui.uv_zoom = new;
+        }
+    }
+    // Touch screens: two fingers pan the sheet and pinch zoom it, the way the wheel zooms about the
+    // cursor. A second finger cancels the stroke the first started, and while the pen is down every
+    // other contact on the glass is a resting palm.
+    let touch = ui.input(|i| i.multi_touch()).filter(|_| !pen_down && (resp.contains_pointer() || resp.dragged()));
+    if let Some(t) = touch {
+        if app.session.stroke_active() {
+            app.session.cancel_stroke();
+        }
+        let d = t.translation_delta;
+        app.ui.uv_pan[0] += d.x / size.x * 2.0;
+        app.ui.uv_pan[1] -= d.y / size.y * 2.0;
+        if t.zoom_delta.is_finite() && t.zoom_delta > 0.0 {
+            let old = app.ui.uv_zoom;
+            let new = (old * t.zoom_delta).clamp(0.1, 40.0);
+            let c = [(t.center_pos.x - rect.left()) / size.x * 2.0 - 1.0, 1.0 - (t.center_pos.y - rect.top()) / size.y * 2.0];
+            for k in 0..2 {
+                app.ui.uv_pan[k] = c[k] - (c[k] - app.ui.uv_pan[k]) * new / old;
             }
             app.ui.uv_zoom = new;
         }
@@ -959,11 +1018,28 @@ fn view_2d(app: &mut TextureCraftApp, ui: &mut Ui, rect: Rect, sync: &mut Pendin
         let uv = to_uv(p);
         app.run("tool.cloneSource", json!({"uv": [uv.x, uv.y]}));
     }
-    let painting = app.ui.mode == crate::state::Mode::Painting && !alt && !adjusting && !v_held;
+    let painting = app.ui.mode == crate::state::Mode::Painting && !alt && !adjusting && !v_held && touch.is_none();
     if painting && path_tool {
         path_input(app, ui, &resp, true, |_, p| Some(to_uv(p).extend(0.0)), show);
     } else if painting {
-        if resp.drag_started_by(PointerButton::Primary) || resp.clicked_by(PointerButton::Primary) {
+        if pen_input {
+            // The pen paints with its own pressure; the pointer egui emulates may be a palm's.
+            if let Some(pen) = pen {
+                let uv = to_uv(pen.pos);
+                if pen.began {
+                    if let Err(e) = app.session.begin_stroke_uv(uv, pen.force) {
+                        app.toast(e.to_string(), true);
+                    }
+                } else if app.session.stroke_active() {
+                    app.session.continue_stroke_uv(uv, pen.force);
+                }
+                if pen.ended
+                    && let Err(e) = app.session.end_stroke()
+                {
+                    app.toast(e.to_string(), true);
+                }
+            }
+        } else if resp.drag_started_by(PointerButton::Primary) || resp.clicked_by(PointerButton::Primary) {
             if let Some(p) = resp.interact_pointer_pos()
                 && let Err(e) = app.session.begin_stroke_uv(to_uv(p), 1.0)
             {
@@ -980,7 +1056,8 @@ fn view_2d(app: &mut TextureCraftApp, ui: &mut Ui, rect: Rect, sync: &mut Pendin
         {
             app.session.continue_stroke_uv(to_uv(p), 1.0);
         }
-        if resp.drag_stopped_by(PointerButton::Primary)
+        if !pen_input
+            && resp.drag_stopped_by(PointerButton::Primary)
             && let Err(e) = app.session.end_stroke()
         {
             app.toast(e.to_string(), true);

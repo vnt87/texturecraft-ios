@@ -24,7 +24,7 @@ pub fn show(app: &mut TextureCraftApp, ctx: &egui::Context) {
     settings(app, ctx);
     crate::keymap::window(app, ctx);
     crate::windows::export(app, ctx);
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", target_os = "ios"))]
     export_mesh(app, ctx);
     if app.ui.mode == Mode::Baking {
         bake_bar(app, ctx);
@@ -570,7 +570,7 @@ fn settings(app: &mut TextureCraftApp, ctx: &egui::Context) {
             ui.end_row();
         });
         ui.add_space(8.0);
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
         {
             ui.label(caption(tr("Project")));
             form("settings_project").show(ui, |ui| {
@@ -622,7 +622,7 @@ fn settings(app: &mut TextureCraftApp, ctx: &egui::Context) {
 
 /// Browser File › Export Mesh: pick the download format (the desktop picks it in the save
 /// dialog).
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", target_os = "ios"))]
 fn export_mesh(app: &mut TextureCraftApp, ctx: &egui::Context) {
     let formats = [
         ("glb", "glTF binary (.glb)", tr("Textures embedded; for game engines and most viewers")),
@@ -969,15 +969,15 @@ fn bake_bar(app: &mut TextureCraftApp, ctx: &egui::Context) {
 // Files (wired to texturecraft-formats once it lands)
 
 pub fn file_dialogs_available() -> bool {
-    cfg!(not(target_arch = "wasm32"))
+    cfg!(all(not(target_arch = "wasm32"), not(target_os = "ios")))
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
 fn pick_mesh_file() -> Option<String> {
     rfd::FileDialog::new().add_filter(tr("3D meshes"), &texturecraft_engine::formats::mesh_import::MESH_EXTENSIONS).pick_file().map(|p| p.display().to_string())
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", target_os = "ios"))]
 fn pick_mesh_file() -> Option<String> {
     None
 }
@@ -990,7 +990,7 @@ pub fn remember(app: &mut TextureCraftApp, path: &str) {
 }
 
 /// Window › Save / Load UI layout: panels, windows and view settings as a JSON file.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
 pub fn layout_file(app: &mut TextureCraftApp, save: bool) {
     let dir = crate::user_dir("layouts");
     let dialog = rfd::FileDialog::new().add_filter(tr("UI layout"), &["json"]).set_directory(&dir);
@@ -1018,13 +1018,13 @@ pub fn layout_file(app: &mut TextureCraftApp, save: bool) {
 }
 
 /// The browser has no file paths; layouts persist with the rest of the UI state.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", target_os = "ios"))]
 pub fn layout_file(app: &mut TextureCraftApp, _save: bool) {
     app.toast(tr("Saving UI layouts to files is available in the desktop app"), false);
 }
 
 /// File menu actions that need dialogs. Returns true when handled.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
 pub fn file_action(app: &mut TextureCraftApp, _ctx: &egui::Context, id: &str) -> bool {
     match id {
         "file.open" => {
@@ -1132,7 +1132,7 @@ pub fn open_path(app: &mut TextureCraftApp, path: &str) {
 }
 
 /// In the browser, Open and Import use the file picker and Save downloads the project.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", target_os = "ios"))]
 pub fn file_action(app: &mut TextureCraftApp, ctx: &egui::Context, id: &str) -> bool {
     match id {
         "file.open" => crate::web_files::open(ctx),
@@ -1151,7 +1151,7 @@ fn export_selection(app: &TextureCraftApp) -> Vec<usize> {
 }
 
 /// Export the selected texture sets; false when a command failed (its error is already shown).
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
 fn export_sets(app: &mut TextureCraftApp) -> bool {
     let mut written = 0usize;
     for ts in export_selection(app) {
@@ -1168,7 +1168,7 @@ fn export_sets(app: &mut TextureCraftApp) -> bool {
 }
 
 /// In the browser the textures download (one zip for several files).
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", target_os = "ios"))]
 fn export_sets(app: &mut TextureCraftApp) -> bool {
     let sets = export_selection(app);
     crate::web_files::export_textures(app, &export_params(app), &sets);
@@ -1200,7 +1200,7 @@ fn export_settings_tab(app: &mut TextureCraftApp, ui: &mut Ui, presets: &[textur
     ui.label(caption(tr("General export parameters")));
     egui::Grid::new("exp_grid").num_columns(2).spacing(vec2(12.0, 8.0)).show(ui, |ui| {
         // The browser downloads the files instead.
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
         {
             ui.label(tr("Output directory"));
             ui.horizontal(|ui| {

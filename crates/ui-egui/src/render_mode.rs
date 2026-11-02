@@ -609,7 +609,7 @@ fn save(app: &mut TextureCraftApp) {
         return;
     };
     let name = format!("{}_render.png", texturecraft_engine::formats::export::sanitize_file_stem(&app.session.doc.project.name));
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
     {
         let Some(path) = rfd::FileDialog::new().add_filter(tr("PNG image"), &["png"]).set_file_name(name).save_file() else { return };
         match std::fs::write(&path, png) {
@@ -617,7 +617,7 @@ fn save(app: &mut TextureCraftApp) {
             Err(e) => app.toast(trf("Couldn't save the render: {error}", &[("error", &e)]), true),
         }
     }
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", target_os = "ios"))]
     match crate::web_files::download(&name, &png) {
         Ok(()) => app.toast(trf("Downloaded {name}", &[("name", &name)]), false),
         Err(e) => app.toast(trf("Couldn't save the render: {error}", &[("error", &e)]), true),

@@ -1,0 +1,36 @@
+[package]
+name = "texturecraft-ios"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "TextureCraft native iPadOS app runner"
+
+[lib]
+name = "texturecraft_ios"
+crate-type = ["staticlib", "rlib"]
+
+# The Apple bridge exports the executable entry symbol for the Xcode-linked static library and
+# talks to UIKit, so unsafe is denied everywhere except its audited modules.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+
+[dependencies]
+texturecraft-engine = { workspace = true }
+texturecraft-ui-egui = { workspace = true }
+eframe = { workspace = true, features = ["default_fonts", "wgpu", "persistence"] }
+egui = { workspace = true }
+log = { workspace = true }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+# Already pinned by eframe and the desktop runner; safe UIKit window configuration.
+winit = { version = "=0.30.13", default-features = false }
+objc2 = "=0.6.5"
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSArray", "NSData", "NSError", "NSURL", "NSString", "NSObject", "NSDictionary", "NSFileManager", "NSPathUtilities", "NSFileCoordinator", "NSOperation", "NSSet", "NSValue", "block2"] }
+objc2-ui-kit = { version = "=0.3.2", default-features = false, features = ["std", "UIApplication", "UIWindow", "UIScene", "UISceneSession", "UISceneOptions", "UIWindowScene", "UIResponder", "UIViewController", "UIDocumentPickerViewController", "UIPasteboard", "UIImage", "UIView", "UIEvent", "UITouch", "UIGestureRecognizer", "UIGestureRecognizerSubclass", "UIPencilInteraction", "UIInteraction", "block2", "objc2-core-foundation", "objc2-uniform-type-identifiers"] }
+objc2-uniform-type-identifiers = { version = "=0.3.2", default-features = false, features = ["std", "UTType"] }
+block2 = "=0.6.2"
+dispatch2 = { version = "=0.3.1", default-features = false, features = ["std"] }

@@ -19,8 +19,10 @@ pub mod menus;
 pub mod parity;
 pub mod profile;
 pub mod render_mode;
+pub mod services;
 pub mod shelf;
 pub mod state;
+pub mod stylus;
 pub mod theme;
 pub mod thumbs;
 pub mod titlebar;
@@ -498,6 +500,13 @@ impl eframe::App for TextureCraftApp {
         }
         self.fonts.update(ctx, i18n::current().code, self.ui.windows.settings);
         menus::shortcuts(self, ctx);
+        // iPadOS: an Apple Pencil held still is a pen, not a touch screen's press-and-hold, and a
+        // pencil double-tap swaps the brush for the eraser the way Photoshop's pen flip does.
+        stylus::sync_pen_hold(ctx);
+        if stylus::take_pen_tap() {
+            let eraser = self.session.tool.tool == texturecraft_engine::Tool::Eraser;
+            self.run(if eraser { "tool.paint" } else { "tool.eraser" }, serde_json::json!({}));
+        }
         // A stored path being edited repaints its sublayer as its points, brush or material change.
         if let Err(e) = self.session.path_live() {
             self.session.stop_path_edit();

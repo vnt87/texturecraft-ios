@@ -34,7 +34,7 @@ const MESH_RESOLUTION: u32 = if cfg!(target_arch = "wasm32") { 1024 } else { 204
 
 /// What a picked file is for.
 #[derive(Clone, Copy, PartialEq)]
-#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+#[cfg_attr(all(not(target_arch = "wasm32"), not(target_os = "ios")), allow(dead_code))]
 enum Pick {
     /// File > Open / a dropped file: a project, a mesh or an image resource.
     Open,
@@ -78,8 +78,8 @@ pub fn poll(app: &mut TextureCraftApp) {
 }
 
 /// Bake mode: add high-definition meshes (or load the cage) with the native file dialog; in
-/// the browser they arrive on a later frame.
-#[cfg(not(target_arch = "wasm32"))]
+/// the browser and on iPad they arrive on a later frame.
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
 pub fn import_bake_mesh(app: &mut TextureCraftApp, _ctx: &egui::Context, cage: bool) {
     let dialog = rfd::FileDialog::new().add_filter(tr("Meshes"), &MESH_EXTENSIONS);
     let paths = if cage { dialog.pick_file().into_iter().collect() } else { dialog.pick_files().unwrap_or_default() };
@@ -90,8 +90,8 @@ pub fn import_bake_mesh(app: &mut TextureCraftApp, _ctx: &egui::Context, cage: b
 }
 
 /// Display settings › Import HDR: pick an equirect `.hdr`/`.exr`, import it as a resource and
-/// light the scene with it (in the browser the file arrives on a later frame).
-#[cfg(not(target_arch = "wasm32"))]
+/// light the scene with it (in the browser and on iPad the file arrives on a later frame).
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
 pub fn import_environment(app: &mut TextureCraftApp, _ctx: &egui::Context) {
     let Some(p) = rfd::FileDialog::new().add_filter(tr("HDR environments"), ENV_EXTS).pick_file() else { return };
     if let Some(r) = app.run("resource.import", serde_json::json!({ "path": p.display().to_string() }))
@@ -186,7 +186,7 @@ pub fn project_file_name(app: &TextureCraftApp) -> String {
 }
 
 /// Pack exported textures into one zip archive.
-#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+#[cfg_attr(all(not(target_arch = "wasm32"), not(target_os = "ios")), allow(dead_code))]
 fn zip_files(files: &[ExportedFile]) -> Result<Vec<u8>, String> {
     use std::io::Write as _;
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
@@ -198,17 +198,19 @@ fn zip_files(files: &[ExportedFile]) -> Result<Vec<u8>, String> {
     Ok(zip.finish().map_err(|e| e.to_string())?.into_inner())
 }
 
-#[cfg(target_arch = "wasm32")]
-pub use web::{
+/// The platforms whose file dialogs answer on a later frame: the browser (File System Access API)
+/// and iPadOS (the runner's UIKit pickers, installed through [`crate::services`]). Both hand the
+/// shell bytes instead of paths, so the same deferred actions serve them.
+#[cfg(any(target_arch = "wasm32", target_os = "ios"))]
+pub use deferred::{
     download, export_mesh, export_textures, import_bake_mesh, import_environment, import_images, import_material, import_preset, open, save_project,
     sync_unsaved, unsaved,
 };
 
-#[cfg(target_arch = "wasm32")]
-mod web {
+#[cfg(any(target_arch = "wasm32", target_os = "ios"))]
+mod deferred {
     use super::*;
     use serde_json::Value;
-    use wasm_bindgen::JsCast as _;
 
     /// Whether the project has unsaved changes, for the page's `beforeunload` listener.
     static UNSAVED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -254,6 +256,8 @@ mod web {
         pick(ctx, tr("Export templates"), &["json"], false, Pick::ExportPreset);
     }
 
+    /// The browser's file picker: read each picked file and drop it in [`INBOX`].
+    #[cfg(target_arch = "wasm32")]
     fn pick(ctx: &egui::Context, filter: &'static str, exts: &'static [&'static str], multiple: bool, kind: Pick) {
         let ctx = ctx.clone();
         wasm_bindgen_futures::spawn_local(async move {
@@ -262,6 +266,20 @@ mod web {
             for file in files {
                 let bytes = file.read().await;
                 INBOX.lock().unwrap_or_else(PoisonError::into_inner).push((file.file_name(), bytes, kind));
+            }
+            ctx.request_repaint();
+        });
+    }
+
+    /// iPadOS: the runner presents the UIKit picker and answers on the callback, off the frame.
+    #[cfg(target_os = "ios")]
+    fn pick(ctx: &egui::Context, filter: &'static str, exts: &'static [&'static str], multiple: bool, kind: Pick) {
+        let request = crate::services::Request { filter: filter.to_string(), extensions: exts.iter().map(|e| e.to_string()).collect(), multiple };
+        let ctx = ctx.clone();
+        crate::services::pick(request, move |answer| {
+            match answer {
+                Ok(files) => INBOX.lock().unwrap_or_else(PoisonError::into_inner).extend(files.into_iter().map(|(name, bytes)| (name, bytes, kind))),
+                Err(e) => log::warn!("file picker unavailable: {e}"),
             }
             ctx.request_repaint();
         });
@@ -325,7 +343,9 @@ mod web {
     }
 
     /// Start a browser download of `bytes` named `name` (Blob + a temporary `<a download>`).
+    #[cfg(target_arch = "wasm32")]
     pub fn download(name: &str, bytes: &[u8]) -> Result<(), String> {
+        use wasm_bindgen::JsCast as _;
         let js = |e: wasm_bindgen::JsValue| format!("{e:?}");
         let window = web_sys::window().ok_or("no window")?;
         let document = window.document().ok_or("no document")?;
@@ -347,6 +367,13 @@ mod web {
         });
         window.set_timeout_with_callback_and_timeout_and_arguments_0(revoke.unchecked_ref(), 10_000).map_err(js)?;
         Ok(())
+    }
+
+    /// iPadOS: hand the finished file to the runner's export picker, which offers it to the user so
+    /// they can keep it in the Files app or another provider.
+    #[cfg(target_os = "ios")]
+    pub fn download(name: &str, bytes: &[u8]) -> Result<(), String> {
+        crate::services::share(name, bytes)
     }
 }
 

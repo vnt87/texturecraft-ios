@@ -22,8 +22,12 @@ rayon = { workspace = true }
 log = { workspace = true }
 base64 = "0.22"
 image = { workspace = true }
-rfd = { workspace = true }
 zip = { workspace = true }
+
+# Desktop and browser file dialogs. iPadOS presents UIKit pickers through `services` instead, and
+# rfd builds no backend for it.
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+rfd = { workspace = true }
 
 # The OS UI language for the first run (MIT OR Apache-2.0; the browser asks `navigator.language`).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

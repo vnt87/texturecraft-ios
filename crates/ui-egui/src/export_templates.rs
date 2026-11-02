@@ -339,7 +339,7 @@ pub fn import(app: &mut TextureCraftApp, preset: &ExportPreset) {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
 fn import_file(app: &mut TextureCraftApp, _ctx: &egui::Context) {
     let Some(path) = rfd::FileDialog::new().add_filter(tr("Export template"), &["json"]).pick_file() else { return };
     match texturecraft_engine::formats::load_preset(&path) {
@@ -348,7 +348,7 @@ fn import_file(app: &mut TextureCraftApp, _ctx: &egui::Context) {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", target_os = "ios"))]
 fn import_file(_app: &mut TextureCraftApp, ctx: &egui::Context) {
     crate::web_files::import_preset(ctx);
 }
@@ -365,14 +365,14 @@ fn export_file(app: &mut TextureCraftApp) {
 }
 
 /// Save `json` with the native dialog (Ok(None): cancelled).
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
 fn write_json(name: &str, json: &str) -> Result<Option<String>, String> {
     let Some(path) = rfd::FileDialog::new().add_filter(tr("Export template"), &["json"]).set_file_name(name).save_file() else { return Ok(None) };
     std::fs::write(&path, json).map_err(|e| e.to_string())?;
     Ok(Some(path.display().to_string()))
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", target_os = "ios"))]
 fn write_json(name: &str, json: &str) -> Result<Option<String>, String> {
     crate::web_files::download(name, json.as_bytes())?;
     Ok(Some(name.to_string()))
