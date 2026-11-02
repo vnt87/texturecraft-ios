@@ -3,6 +3,7 @@
 //! Pure Rust (std + serde_json). `cargo` itself is invoked through `std::process::Command`.
 
 mod ico;
+mod ios;
 mod layers;
 mod version;
 
@@ -16,6 +17,9 @@ commands:
   layers          enforce the crate dependency layering (xtask/src/layers.rs)
   wasm            cargo check --target wasm32-unknown-unknown for the wasm crates and the web app
   ci              fmt --check, clippy -D warnings, test, layers, wasm (stops at the first failure)
+  ios (--sim | --device) [--release] [--dry-run] [--sim-name N] [--device-id ID] [--team ID] [--bundle-id ID]
+                  build the TextureCraft iPad bundle with xcodebuild and run it on the Simulator or a
+                  device (macOS + Xcode; --dry-run prints the plan anywhere; see `ios --help`)
   version [set X.Y.Z[-pre]]
                   print the workspace version, or set it (Cargo.toml + Cargo.lock)
   ico <out.ico> <in.png>...
@@ -34,6 +38,7 @@ fn main() -> ExitCode {
         Some("version") => version::run(&root(), &rest),
         Some("ico") => ico::run_ico(&rest),
         Some("icns") => ico::run_icns(&rest),
+        Some("ios") => ios::run(&root(), &rest),
         Some("-h" | "--help" | "help") | None => {
             print!("{USAGE}");
             Ok(())
