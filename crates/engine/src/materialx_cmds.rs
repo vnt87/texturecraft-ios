@@ -14,7 +14,9 @@ use serde_json::{Value, json};
 use texturecraft_core::{Channel, Fill, Layer, LayerKind, Projection, Source};
 use texturecraft_formats::materialx_read::{Material, Value as Mtlx};
 
-use crate::commands::{CommandSpec, always, bad, strp};
+use crate::commands::{CommandSpec, always};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::commands::{bad, strp};
 use crate::{EngineError, Result, Session, cmd};
 
 pub fn specs() -> Vec<CommandSpec> {
@@ -78,7 +80,7 @@ impl Session {
                             unique
                         }
                     };
-                    Source::Image { name: resource }
+                    Source::image(resource)
                 }
             };
             fill.sources.insert(*channel, source);

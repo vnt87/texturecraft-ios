@@ -1,13 +1,13 @@
 //! Texture set commands (Texture Set List / Texture Set Settings).
 
 use serde_json::{Value, json};
-use texturecraft_core::{Channel, ChannelBlend, ChannelFormat, NormalFormat};
+use texturecraft_core::{Channel, ChannelBlend, ChannelFormat};
 
 use std::sync::Arc;
 
 use texturecraft_geom::Mesh;
 
-use crate::commands::{CommandSpec, always, bad, boolp, channel_param, f32p, strp, u64p};
+use crate::commands::{CommandSpec, always, bad, boolp, channel_param, f32p, normal_format_param, strp, u64p};
 use crate::session::{Document, SetCache, StackTarget, check_resolution};
 use crate::{Result, Session, cmd};
 
@@ -75,12 +75,30 @@ pub(crate) fn ts_param(s: &Session, p: &Value, cmd: &str) -> Result<usize> {
 }
 
 fn select(s: &mut Session, p: &Value) -> Result<Value> {
-    let ts = u64p(p, "ts").map(|t| t as usize).filter(|t| *t < s.set_count()).ok_or_else(|| bad("textureSet.select", "valid `ts` index required"))?;
+    let ts = u64p(p, "ts")
+        .map(|index| index as usize)
+        .filter(|index| *index < s.set_count())
+        .ok_or_else(|| bad("textureSet.select", "valid `ts` index required"))?;
+    select_set(s, ts)?;
+    Ok(json!({ "ts": ts }))
+}
+
+/// Make texture set `ts` the active one, on its content stack
+pub(crate) fn select_set(s: &mut Session, ts: usize) -> Result<()> {
     s.cancel_stroke();
+
+    // Paths paint into the active set
+    if ts != s.ts() {
+        s.finish_path()?;
+
+        // The clone source is a point of the set it was picked in
+        s.tool.clone_source = None;
+    }
+
     s.active_set = ts;
     s.target = StackTarget::Content;
     s.revision = s.revision.wrapping_add(1);
-    Ok(json!({ "ts": ts }))
+    Ok(())
 }
 
 fn resolution(s: &mut Session, p: &Value) -> Result<Value> {
@@ -110,7 +128,7 @@ pub struct ResizeOutput {
     doc: Document,
     /// The set's new caches (None when its UV tile layout moved: the session rebuilds them).
     cache: Option<SetCache>,
-    log: Vec<String>,
+    log: crate::log::SessionLog,
     from: (u64, u64),
 }
 
@@ -124,8 +142,9 @@ impl ResizeTask {
         set.resolution = resolution;
         crate::session::check_size(set)?;
         let size = set.size();
-        let mut log = Vec::new();
-        // Tiles of their own resolution keep it, so the others move within their atlas blocks.
+        let mut log = crate::log::SessionLog::new();
+
+        // Tiles of their own resolution keep it, so the others move within their atlas blocks
         if old.tile_resolutions.is_empty() {
             crate::layer_ops::resample_set(&mut doc, ts, size);
         } else {
@@ -162,18 +181,21 @@ impl Session {
             let task = self.resize_task(out.ts, out.resolution)?;
             return self.apply_resize(task.run(&texturecraft_bake::Progress::new())?);
         }
+
         let ResizeOutput { ts, resolution, doc, cache, log, .. } = out;
         let before = std::mem::replace(&mut self.doc, doc);
-        // The new caches go in first, so the history step keeps them instead of rebuilding.
+
+        // Install the new caches before adding history to avoid rebuilding them
         if let (Some(c), Some(slot)) = (cache, self.caches.get_mut(ts)) {
             let old = std::mem::replace(slot, c);
-            // Freeing an 8K set's caches takes tens of milliseconds: a thread does it.
+
+            // Release large caches without blocking the UI
             #[cfg(not(target_arch = "wasm32"))]
             let _ = std::thread::Builder::new().name("texturecraft-free".into()).spawn(move || drop(old));
             #[cfg(target_arch = "wasm32")]
             drop(old);
         }
-        self.log.extend(log);
+        self.log.append(log);
         self.push_history("Texture set size", before);
         Ok(json!({ "ts": ts, "resolution": resolution }))
     }
@@ -258,12 +280,7 @@ fn rename(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn settings(s: &mut Session, p: &Value) -> Result<Value> {
     let ts = ts_param(s, p, "textureSet.settings")?;
-    let nf = match strp(p, "normalFormat") {
-        Some("openGl") | Some("opengl") => Some(NormalFormat::OpenGl),
-        Some("directX") | Some("directx") => Some(NormalFormat::DirectX),
-        Some(o) => return Err(bad("textureSet.settings", format!("unknown normal format `{o}`"))),
-        None => None,
-    };
+    let nf = normal_format_param("textureSet.settings", p)?;
     s.edit("Texture set settings", |s| {
         if let Some(n) = nf {
             s.doc.project.normal_format = n;
