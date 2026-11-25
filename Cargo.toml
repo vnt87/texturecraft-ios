@@ -88,6 +88,7 @@ craft-menu = { git = "https://github.com/storytold/craft-libs", rev = "390fe98b0
 
 # egui 0.37 and winit: the suite's forks (storytold/egui, storytold/winit), as craft-libs pins them.
 [patch.crates-io]
+rfd = { path = "vendor/rfd" }
 ecolor = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
 emath = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
 epaint = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }

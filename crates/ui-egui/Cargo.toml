@@ -54,7 +54,7 @@ xcap = { version = "0.9", default-features = false }
 
 # The same on X11 (a pointer grab with the eyedropper pointer and one root-window pixel; x11rb, MIT OR Apache-2.0) and on Wayland (the desktop's colour
 # picker portal; zbus, MIT).
-[target.'cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))'.dependencies]
+[target.'cfg(all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_arch = "wasm32")))'.dependencies]
 x11rb = { version = "0.13", features = ["render"] }
 zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"] }
 
